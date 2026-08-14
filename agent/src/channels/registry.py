@@ -19,7 +19,25 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_INTERNAL = frozenset({"base", "bus", "config", "manager", "pairing", "registry", "runtime", "utils"})
+# Moduli that live under src/channels/ but are NOT channel adapters:
+# infrastructure (base, bus, config, manager, pairing, runtime, utils) plus
+# helper modules (identity, telegram_config) that channely adapters import.
+# Keeping them internal stops pkgutil discovery from reporting phantom
+# "No BaseChannel subclass" adapters in /channels/status.
+_INTERNAL = frozenset(
+    {
+        "base",
+        "bus",
+        "config",
+        "identity",
+        "manager",
+        "pairing",
+        "registry",
+        "runtime",
+        "telegram_config",
+        "utils",
+    }
+)
 _LEGACY_GLOBAL_CONFIG_KEYS = frozenset(
     {"restrictToWorkspace", "restrict_to_workspace", "showReasoning", "show_reasoning"}
 )

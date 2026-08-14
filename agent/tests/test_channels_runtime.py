@@ -105,6 +105,9 @@ def test_registry_reports_all_built_in_channels_with_dependency_recovery() -> No
 
     assert expected.issubset(set(discover_channel_names()))
     assert {"config", "runtime"}.isdisjoint(set(discover_channel_names()))
+    # Helper modules under src/channels/ must stay out of adapter discovery,
+    # otherwise /channels/status reports phantom broken adapters.
+    assert {"identity", "telegram_config"}.isdisjoint(set(discover_channel_names()))
 
     statuses = inspect_channels({"telegram": {"enabled": True}, "slack": {"enabled": True}})
 
