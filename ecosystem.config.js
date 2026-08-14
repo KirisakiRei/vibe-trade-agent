@@ -2,10 +2,12 @@
  * PM2 ecosystem config for the Vibe-Trading Telegram bot (VPS, no Docker).
  *
  * Prerequisites (run once on the VPS):
- *   cd /home/ubuntu/vibe-trade-agent        # ← adjust APP_DIR below
- *   cd agent && python3.11 -m venv .venv && source .venv/bin/activate
- *   pip install --no-deps -e . && pip install -r requirements-channels.txt
+ *   cd /var/www/vibe-trade-agent           # ← adjust APP_DIR below
+ *   python3.12 -m venv agent/.venv && source agent/.venv/bin/activate
+ *   pip install -e ".[telegram]"           # or: pip install --no-deps -e . && pip install -r agent/requirements-channels.txt
  *   deactivate
+ *   mkdir -p ~/.vibe-trading && cp agent/.env.example ~/.vibe-trading/.env
+ *   # edit ~/.vibe-trading/.env, then create ~/.vibe-trading/agent.json
  *
  * Config files the bot reads at startup:
  *   ~/.vibe-trading/.env        → LLM keys, VIBE_TRADING_ANALYSIS_ONLY,
@@ -25,7 +27,7 @@ module.exports = {
       // Console-script entry installed into the venv during setup.
       script: "agent/.venv/bin/vibe-trading",
       args: "serve --host 127.0.0.1 --port 8899",
-      cwd: "/home/ubuntu/vibe-trade-agent",
+      cwd: "/var/www/vibe-trade-agent",
       interpreter: "none", // venv console script is already a Python shim
       instances: 1,        // single long-polling Telegram worker; keep at 1
       exec_mode: "fork",   // fork (not cluster) — Python single-process

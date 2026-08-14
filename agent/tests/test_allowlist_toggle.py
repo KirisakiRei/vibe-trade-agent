@@ -143,3 +143,54 @@ class TestChannelsConfigWiring:
         channels = load_channels_config(config_path)
 
         assert channels["telegram"].get("allowlistEnabled", True) is True
+
+
+class TestTelegramConfigAliasing:
+    """The per-channel dict passes through agent.json verbatim, so the Pydantic
+    model itself must accept the camelCase aliases we document (allowlistEnabled
+    etc.). A misspelt ignore would silently leave the bot fail-closed."""
+
+    def test_camelcase_open_mode_drives_is_allowed(self) -> None:
+        from src.channels.telegram_config import TelegramConfig
+
+        cfg = TelegramConfig.model_validate({"allowlistEnabled": False})
+        assert cfg.allowlist_enabled is False
+
+        ch = _channel(cfg)
+        assert ch.is_allowed("111111111") is True
+
+    def test_camelcase_group_policy_and_allow_from(self) -> None:
+        from src.channels.telegram_config import TelegramConfig
+
+        cfg = TelegramConfig.model_validate(
+            {"allowFrom": ["111111111"], "groupPolicy": "open"}
+        )
+        assert cfg.allow_from == ["111111111"]
+        assert cfg.group_policy == "open"
+
+    def test_snake_case_still_valid(self) -> None:
+        from src.channels.telegram_config import TelegramConfig
+
+        cfg = TelegramConfig.model_validate(
+            {"allowlist_enabled": False, "allow_from": ["111111111"]}
+        )
+        assert cfg.allowlist_enabled is False
+        assert cfg.allow_from == ["111111111"]
+
+    def test_officially_documented_snippet(self) -> None:
+        """The .env.example / agent.json snippet must produce an OPEN bot."""
+        from src.channels.telegram_config import TelegramConfig
+
+        cfg = TelegramConfig.model_validate(
+            {
+                "enabled": True,
+                "token": "123:abc",
+                "allowlistEnabled": False,
+                "mode": "polling",
+            }
+        )
+        assert cfg.allowlist_enabled is False
+        assert cfg.token == "123:abc"
+
+        ch = _channel(cfg)
+        assert ch.is_allowed("999999999") is True
