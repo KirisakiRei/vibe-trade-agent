@@ -325,3 +325,80 @@ class ScheduledResearchJob:
             config=config,
             timezone=tz,
         )
+
+
+# ---------------------------------------------------------------------------
+# Job ownership (multi-user isolation)
+# ---------------------------------------------------------------------------
+#
+# A scheduled job may be user-specific or global.  User-specific jobs store
+# their owner inside the opaque ``config`` dict so the dataclass serialization
+# and the persisted store need no schema change:
+#
+#     job.config["owner_type"] = "telegram"
+#     job.config["owner_id"]   = "<telegram numeric user id>"
+#
+# Notifications for a user-specific job must be delivered only to the owner;
+# global monitoring/research jobs (no owner) may be shared.
+
+#: Config key under which the job owner channel type is stored.
+OWNER_TYPE_KEY = "owner_type"
+
+#: Config key under which the job owner platform user id is stored.
+OWNER_ID_KEY = "owner_id"
+
+
+def set_job_owner(
+    job: ScheduledResearchJob, owner_type: str, owner_id: str | int
+) -> None:
+    """Mark a scheduled job as belonging to one platform user.
+
+    Args:
+        job: The job to mutate.
+        owner_type: Owner channel type (e.g. ``"telegram"``).
+        owner_id: Stable numeric platform user id.
+
+    Returns:
+        None; the job's ``config`` dict is updated in place.
+    """
+    job.config[OWNER_TYPE_KEY] = str(owner_type)
+    job.config[OWNER_ID_KEY] = str(owner_id)
+
+
+def job_owner(job: ScheduledResearchJob) -> tuple[str, str] | None:
+    """Return ``(owner_type, owner_id)`` for a user-specific job.
+
+    Args:
+        job: The scheduled job.
+
+    Returns:
+        A ``(owner_type, owner_id)`` tuple for user-specific jobs, or None for
+        global/shared jobs.
+    """
+    owner_type = job.config.get(OWNER_TYPE_KEY)
+    owner_id = job.config.get(OWNER_ID_KEY)
+    if not owner_type or not owner_id:
+        return None
+    return str(owner_type), str(owner_id)
+
+
+def notification_target(job: ScheduledResearchJob) -> tuple[str, str] | None:
+    """Resolve the delivery target for a job's notification.
+
+    User-specific jobs must notify only their owner.  The target is derived
+    from the owner identity: for Telegram the numeric user id doubles as the
+    private-chat chat id, which is the chat the bot delivers replies to.
+
+    Args:
+        job: The scheduled job.
+
+    Returns:
+        ``(channel, chat_id)`` for user-specific jobs, or None for
+        global/shared jobs (which stay free to broadcast via their own
+        configured channel strategy).
+    """
+    owner = job_owner(job)
+    if owner is None:
+        return None
+    owner_type, owner_id = owner
+    return str(owner_type), str(owner_id)

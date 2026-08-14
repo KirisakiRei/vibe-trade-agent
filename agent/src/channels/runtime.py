@@ -249,14 +249,55 @@ class ChannelRuntime:
         existing = self._session_map.get(key)
         if existing:
             return existing
+        config: dict[str, Any] = {
+            "channel": msg.channel,
+            "channel_chat_id": msg.chat_id,
+        }
+        identity = self._user_identity_for(msg)
+        if identity:
+            config["user_identity"] = identity
         session = self.session_service.create_session(
             title=f"{msg.channel}:{msg.chat_id}",
-            config={"channel": msg.channel, "channel_chat_id": msg.chat_id},
+            config=config,
         )
         session_id = _session_id(session)
         self._session_map[key] = session_id
         self._save_session_map()
         return session_id
+
+    def _user_identity_for(self, msg: InboundMessage) -> str | None:
+        """Derive the canonical user identity for a DM message, if any.
+
+        Private Telegram chats are isolated per user: the canonical identity
+        (``telegram:<user_id>``) is stored on the session config so the agent
+        loop can build a per-user scoped memory. Group chats keep their
+        chat-scoped session and never receive a per-participant identity --
+        a participant must not be assumed to have a private session.
+
+        Args:
+            msg: The inbound channel message.
+
+        Returns:
+            The canonical identity, or None when the message is not a scoped
+            private message (group chat, missing user id, malformed id).
+        """
+        meta = msg.metadata or {}
+        if meta.get("is_group"):
+            return None
+        user_id = meta.get("user_id")
+        if user_id is None:
+            return None
+        try:
+            from src.channels.identity import canonical_user_id
+
+            return canonical_user_id(msg.channel, str(user_id))
+        except Exception:  # noqa: BLE001 - malformed ids are not fatal
+            logger.debug(
+                "channel %s message has non-scoped user id %r",
+                msg.channel,
+                user_id,
+            )
+            return None
 
     async def _wait_for_reply(self, session_id: str, attempt_id: str | None) -> Message:
         deadline = time.monotonic() + self.config.reply_timeout_s

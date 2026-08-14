@@ -372,6 +372,9 @@ class TelegramConfig(BaseModel):
     token: str = ""
     mode: Literal["polling", "webhook"] = "polling"
     allow_from: list[str] = Field(default_factory=list)
+    # Master access switch: True (default, fail-closed) enforces allowlist +
+    # pairing; False opens the bot to every sender (no pairing required).
+    allowlist_enabled: bool = True
     proxy: str | None = None
     reply_to_message: bool = False
     react_emoji: str = "👀"
@@ -1149,6 +1152,30 @@ class TelegramChannel(BaseChannel):
         return f"telegram:{message.chat_id}:topic:{message_thread_id}"
 
     @staticmethod
+    def _session_key_for_message(message) -> str:
+        """Return the canonical session key for an inbound Telegram message.
+
+        Private DMs are scoped per user (``telegram:<user_id>``) so two users
+        sharing the bot never share conversation history or session state.
+        Group chats stay chat-scoped (optionally topic-scoped) exactly as
+        before: a participant is *not* assumed to have a private session.
+
+        Args:
+            message: The inbound Telegram message.
+
+        Returns:
+            The canonical session key string.
+        """
+        topic_key = TelegramChannel._derive_topic_session_key(message)
+        if topic_key is not None:
+            return topic_key
+        chat_type = getattr(getattr(message, "chat", None), "type", None)
+        from_user = getattr(message, "from_user", None)
+        if chat_type == "private" and from_user is not None:
+            return f"telegram:{from_user.id}"
+        return f"telegram:{message.chat_id}"
+
+    @staticmethod
     def _build_message_metadata(message, user) -> dict:
         """Build common Telegram inbound metadata payload."""
         reply_to = getattr(message, "reply_to_message", None)
@@ -1318,7 +1345,7 @@ class TelegramChannel(BaseChannel):
     @staticmethod
     def _queue_key_for_message(message) -> str:
         """Return the final vibe-trading session key used for ordered Telegram ingress."""
-        return TelegramChannel._derive_topic_session_key(message) or f"telegram:{message.chat_id}"
+        return TelegramChannel._session_key_for_message(message)
 
     @staticmethod
     def _sort_key_for_update(update: Update) -> tuple[int, int]:
@@ -1415,7 +1442,7 @@ class TelegramChannel(BaseChannel):
             chat_id=str(message.chat_id),
             content=content,
             metadata=self._build_message_metadata(message, user),
-            session_key=self._derive_topic_session_key(message),
+            session_key=self._session_key_for_message(message),
             is_dm=message.chat.type == "private",
         )
 
@@ -1488,7 +1515,7 @@ class TelegramChannel(BaseChannel):
 
         str_chat_id = str(chat_id)
         metadata = self._build_message_metadata(message, user)
-        session_key = self._derive_topic_session_key(message)
+        session_key = self._session_key_for_message(message)
 
         # Telegram media groups: buffer briefly, forward as one aggregated turn.
         if media_group_id := getattr(message, "media_group_id", None):

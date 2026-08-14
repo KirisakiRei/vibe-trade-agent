@@ -163,11 +163,27 @@ class BaseChannel(ABC):
         return bool(streaming) and type(self).send_delta is not BaseChannel.send_delta
 
     def is_allowed(self, sender_id: str) -> bool:
-        """Check sender permission: star > allowlist > pairing store > deny."""
+        """Check sender permission: open mode > star > allowlist > pairing store > deny.
+
+        ``allowlist_enabled`` acts as a master switch: when False, every sender
+        is allowed without pairing or allowlist matching (open bot). When True
+        (default, fail-closed), access requires an allowlist entry, a star
+        wildcard, or an approved /pairing code.
+
+        Args:
+            sender_id: The channel sender identifier (e.g. ``telegram`` user id).
+
+        Returns:
+            True when the sender may interact with the bot.
+        """
         if isinstance(self.config, dict):
+            allowlist_enabled = self.config.get("allowlist_enabled", True)
             allow_list = self.config.get("allow_from") or self.config.get("allowFrom") or []
         else:
+            allowlist_enabled = getattr(self.config, "allowlist_enabled", True)
             allow_list = getattr(self.config, "allow_from", None) or []
+        if not allowlist_enabled:
+            return True
         if "*" in allow_list:
             return True
         if str(sender_id) in allow_list:

@@ -146,6 +146,78 @@ def test_load_agent_config_supports_yaml(tmp_path: Path) -> None:
     assert config.mcp_servers["demo"].args == ["demo-server"]
 
 
+def test_load_agent_config_expands_env_refs(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("TEST_TELEGRAM_TOKEN", "7123456789:AAF-secret")
+    monkeypatch.setenv("TEST_TELEGRAM_USER_ID", "111111111")
+    config_path = tmp_path / "agent.json"
+    config_path.write_text(
+        """
+        {
+          "channels": {
+            "telegram": {
+              "token": "${TEST_TELEGRAM_TOKEN}",
+              "allowFrom": ["${TEST_TELEGRAM_USER_ID}"]
+            }
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    channels = load_channels_config(config_path)
+
+    assert channels["telegram"]["token"] == "7123456789:AAF-secret"
+    assert channels["telegram"]["allowFrom"] == ["111111111"]
+
+
+def test_load_agent_config_leaves_unset_env_ref_literal(tmp_path: Path) -> None:
+    config_path = tmp_path / "agent.json"
+    config_path.write_text(
+        """
+        {
+          "channels": {
+            "telegram": {
+              "token": "${UNDEFINED_TOKEN_VAR}"
+            }
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    channels = load_channels_config(config_path)
+
+    # A missing variable must fail loudly downstream (invalid token), not
+    # silently become an empty string.
+    assert channels["telegram"]["token"] == "${UNDEFINED_TOKEN_VAR}"
+
+
+def test_load_agent_config_expands_env_refs_in_nested_values(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("TEST_PAIR", "EURUSD")
+    config_path = tmp_path / "agent.json"
+    config_path.write_text(
+        """
+        {
+          "mcpServers": {
+            "demo": {
+              "command": "echo",
+              "args": ["${TEST_PAIR}", "static"],
+              "env": {"PAIR": "${TEST_PAIR}"}
+            }
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    config = load_agent_config(config_path)
+
+    assert config.mcp_servers["demo"].args == ["EURUSD", "static"]
+    assert config.mcp_servers["demo"].env == {"PAIR": "EURUSD"}
+
+
 def test_schema_accepts_sse_transport() -> None:
     config = AgentConfig.model_validate(
         {

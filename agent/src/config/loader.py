@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -23,6 +24,13 @@ try:
     import yaml
 except ImportError:
     yaml = None  # type: ignore
+
+#: ``${NAME}`` references inside structured config values are expanded from
+#: ``os.environ`` at load time, so secrets (Telegram bot token, user ids) can
+#: live in ``.env`` / the process environment instead of being hardcoded in
+#: ``agent.json``. Only the braced form is expanded — matches are rare enough
+#: in hand-written config that plain ``$VAR`` text is left untouched.
+_ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 def load_agent_config(config_path: Path | None = None) -> AgentConfig:
@@ -256,7 +264,34 @@ def _read_config_file(path: Path) -> dict[str, Any]:
 
     if not isinstance(data, dict):
         raise ValueError("Agent config must decode to a JSON/YAML object")
-    return data
+    return _expand_env_refs(data)
+
+
+def _expand_env_refs(value: Any) -> Any:
+    """Recursively expand ``${ENV_VAR}`` references inside a config tree.
+
+    A reference whose variable is missing from the environment is left as the
+    literal ``${NAME}`` text (never replaced with empty), so a typo fails
+    loudly later (e.g. Telegram rejects an empty/placeholder token) instead of
+    silently dropping the value. Non-string scalars, dict keys, and list
+    structure are preserved.
+
+    Args:
+        value: A config tree (dict, list, str, or scalar).
+
+    Returns:
+        A new tree with env references expanded where possible.
+    """
+    if isinstance(value, str):
+        return _ENV_REF_RE.sub(
+            lambda m: os.environ.get(m.group(1), m.group(0)),
+            value,
+        )
+    if isinstance(value, dict):
+        return {key: _expand_env_refs(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_expand_env_refs(item) for item in value]
+    return value
 
 
 def _merge_agent_config_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

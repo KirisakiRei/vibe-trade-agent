@@ -108,3 +108,17 @@ def _get_channel_runtime():
     _set_host_attr("_channel_bus", _channel_bus)
     _set_host_attr("_channel_manager", _channel_manager)
     return _channel_runtime
+
+
+def _get_channel_bus():
+    """Return the shared channel MessageBus, or None when channels are disabled.
+
+    Scheduler notifications need the bus to reach a Telegram owner's chat, but
+    scheduling must stay functional even when channel runtimes are not loaded.
+    """
+    import sys as _sys
+
+    host = _sys.modules.get("api_server")
+    if host is not None and hasattr(host, "_channel_bus"):
+        return getattr(host, "_channel_bus")
+    return _channel_bus

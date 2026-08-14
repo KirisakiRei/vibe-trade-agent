@@ -68,15 +68,32 @@ async def _dispatch_scheduled_research_job(job) -> None:
     svc = host._get_session_service()
     if not svc:
         raise RuntimeError("Session runtime not enabled")
-    # Pass a copy so the session runtime's internal config writes (e.g.
-    # include_shell_tools) do not mutate the persisted scheduled-run config.
+    # The session config starts from the job's persisted config (backtest
+    # parameters etc.) and, for user-specific jobs, carries the canonical
+    # user_identity so the run gets the owner's private scoped memory instead
+    # of a shared one. A copy avoids mutating the persisted job record.
+    from src.scheduled_research.notify import (
+        publish_owner_notification,
+        session_config_for_job,
+    )
+    from src.api.state import _get_channel_bus
+
+    session_config = session_config_for_job(job)
     session = svc.create_session(
-        title=f"scheduled-research:{job.id}", config=dict(job.config)
+        title=f"scheduled-research:{job.id}", config=session_config
     )
     logger.info(
         "dispatching scheduled research job %s via session %s",
         job.id,
         session.session_id,
+    )
+    # User-specific jobs notify only their owner in their private chat. Global
+    # jobs (no owner) are never pushed into a user chat. Safe no-op when no
+    # channel bus is available.
+    await publish_owner_notification(
+        job,
+        f"Scheduled analysis `{job.id}` is running now.",
+        bus=_get_channel_bus(),
     )
     await svc.send_message(session.session_id, job.prompt)
 

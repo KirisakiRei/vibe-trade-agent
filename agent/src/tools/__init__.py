@@ -72,6 +72,7 @@ def build_registry(
     event_callback: Callable[[str, dict], None] | None = None,
     warn_callback: Callable[[str], None] | None = None,
     interactive: bool | None = None,
+    analysis_only: bool | None = None,
     _mcp_server_tool_name_segments: Mapping[str, str] | None = None,
 ) -> ToolRegistry:
     """Build the tool registry via auto-discovery, optionally enriched with MCP tools.
@@ -108,11 +109,22 @@ def build_registry(
             channel rather than blocking on a browser that cannot open
             (SPEC Transport §4). ``None`` (default) auto-detects via
             ``sys.stdin.isatty()``.
+        analysis_only: When True, execution-capable tools (live order
+            placement, cancellation, position modification, copy trading) are
+            excluded from the registry; read-only trading tools stay. When
+            False, the full upstream tool surface is preserved. ``None``
+            (default) resolves the flag from the ``VIBE_TRADING_ANALYSIS_ONLY``
+            environment variable, which defaults to off — preserving upstream
+            behavior unless the deployment explicitly opts in.
 
     Returns:
         ToolRegistry containing all available local tools followed by any
         successfully discovered MCP tools.
     """
+    from src.governance.project_mode import excluded_tool_names
+
+    excluded = excluded_tool_names(analysis_only)
+
     from src.tools.goal_tool import (
         AddGoalEvidenceTool,
         GetResearchGoalTool,
@@ -137,6 +149,9 @@ def build_registry(
         try:
             if cls.name in _SHELL_TOOL_NAMES and not include_shell_tools:
                 logger.info("Tool %s disabled by shell tool policy", cls.name)
+                continue
+            if cls.name in excluded:
+                logger.info("Tool %s disabled by analysis-only policy", cls.name)
                 continue
             if not cls.check_available():
                 logger.info("Tool %s unavailable, skipping", cls.name)

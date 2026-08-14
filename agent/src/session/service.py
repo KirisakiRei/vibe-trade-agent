@@ -369,10 +369,23 @@ class SessionService:
         from src.providers.chat import ChatLLM
         from src.agent.loop import AgentLoop
         from src.memory.persistent import PersistentMemory
+        from src.memory.scopes import build_scoped_memory
         from src.config.loader import load_runtime_agent_config, sanitize_session_overrides
 
         llm = ChatLLM()
-        pm = PersistentMemory()
+
+        # Multi-user isolation: when the session carries a canonical user
+        # identity (e.g. telegram:<user-id>), the agent gets a scoped memory
+        # composed of the shared global store + that user's private store.
+        # Unscoped sessions (CLI/API) keep the plain global PersistentMemory.
+        from src.channels.identity import identity_for_session
+
+        identity = identity_for_session(session_config)
+        pm = (
+            build_scoped_memory(identity)
+            if identity
+            else PersistentMemory()
+        )
 
         session_id = attempt.session_id
         attempt_id = attempt.attempt_id

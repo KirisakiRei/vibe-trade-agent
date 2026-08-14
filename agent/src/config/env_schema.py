@@ -364,6 +364,9 @@ class AgentTuningConfig(_EnvBase):
     vibe_trading_enable_advisory: EnvBool = Field(
         alias="VIBE_TRADING_ENABLE_ADVISORY", default=False,
     )
+    vibe_trading_analysis_only: EnvBool = Field(
+        alias="VIBE_TRADING_ANALYSIS_ONLY", default=False,
+    )
     vibe_trading_enable_scheduler: EnvBool = Field(
         alias="VIBE_TRADING_ENABLE_SCHEDULER", default=False,
     )

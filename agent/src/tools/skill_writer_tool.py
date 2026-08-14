@@ -20,6 +20,7 @@ from typing import Any
 
 from src.agent.skills import USER_SKILLS_DIR
 from src.agent.tools import BaseTool
+from src.governance.skill_policy import SkillWriteDeniedError, get_skill_write_policy
 
 _ALLOWED_SUBDIRS = {"references", "templates", "examples", "assets"}
 
@@ -91,6 +92,10 @@ class SaveSkillTool(BaseTool):
             return json.dumps({"status": "error", "error": "name and content required"})
 
         slug = _sanitize_skill_name(name)
+        try:
+            get_skill_write_policy().enforce(slug)
+        except SkillWriteDeniedError as exc:
+            return json.dumps({"status": "error", "error": str(exc)})
         skill_dir = USER_SKILLS_DIR / slug
         skill_dir.mkdir(parents=True, exist_ok=True)
         skill_path = skill_dir / "SKILL.md"
@@ -159,6 +164,10 @@ class PatchSkillTool(BaseTool):
             return json.dumps({"status": "error", "error": "name and find required"})
 
         slug = _sanitize_skill_name(name)
+        try:
+            get_skill_write_policy().enforce(slug)
+        except SkillWriteDeniedError as exc:
+            return json.dumps({"status": "error", "error": str(exc)})
         user_path = USER_SKILLS_DIR / slug / "SKILL.md"
         bundled_dir = Path(__file__).resolve().parents[1] / "skills"
         bundled_path = bundled_dir / slug / "SKILL.md"
@@ -221,6 +230,10 @@ class DeleteSkillTool(BaseTool):
             return json.dumps({"status": "error", "error": "name required"})
 
         slug = _sanitize_skill_name(name)
+        try:
+            get_skill_write_policy().enforce(slug)
+        except SkillWriteDeniedError as exc:
+            return json.dumps({"status": "error", "error": str(exc)})
         skill_dir = USER_SKILLS_DIR / slug
         if not skill_dir.exists():
             return json.dumps({"status": "error", "error": f"User skill '{slug}' not found"})
@@ -285,6 +298,12 @@ class SkillFileTool(BaseTool):
         skill_dir = USER_SKILLS_DIR / _sanitize_skill_name(skill_name)
         if not skill_dir.exists():
             return json.dumps({"status": "error", "error": f"User skill '{skill_name}' not found. Create it with save_skill first."})
+
+        rel_path = (kwargs.get("path") or "").strip()
+        try:
+            get_skill_write_policy().enforce(skill_dir.name, rel_path)
+        except SkillWriteDeniedError as exc:
+            return json.dumps({"status": "error", "error": str(exc)})
 
         if action == "list":
             return self._list_files(skill_dir, skill_name)

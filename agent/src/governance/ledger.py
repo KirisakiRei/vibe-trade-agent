@@ -221,6 +221,23 @@ class LedgerCorruptionError(RuntimeError):
         self.chain_break = chain_break
 
 
+def _is_nul_padding_only(text: str) -> bool:
+    """Return whether *text* is exactly the Windows lock NUL padding.
+
+    ``_lock_exclusive`` writes a single NUL byte into a brand-new file so
+    ``msvcrt.locking`` has a byte to lock.  Decoding that byte yields ``"\\0"``.
+    A file whose decoded content is only NUL bytes (with no real record) is
+    treated as padding-only so ``append_record`` can overwrite it cleanly.
+
+    Args:
+        text: Decoded file content read for append.
+
+    Returns:
+        True when the content is empty or consists solely of NUL bytes.
+    """
+    return text.replace("\x00", "") == ""
+
+
 def _iter_parsed_lines(lines: Iterable[str]) -> Iterator[tuple[int, dict[str, Any] | None, str | None]]:
     """Yield ``(index, parsed_record_or_None, parse_error_or_None)`` for non-blank lines.
 
@@ -229,7 +246,12 @@ def _iter_parsed_lines(lines: Iterable[str]) -> Iterator[tuple[int, dict[str, An
     verification.
     """
     for index, raw in enumerate(lines):
-        line = raw.strip()
+        # Windows msvcrt.locking needs an existing byte to lock; the lock
+        # helper pads a brand-new file with a NUL byte.  A NUL is not a valid
+        # JSON record (and never appears in ledger payloads), so a line that is
+        # only NUL/whitespace padding from the lock must be treated as blank —
+        # otherwise every Windows ledger looks corrupt from its first record.
+        line = raw.replace("\x00", "").strip()
         if not line:
             continue
         try:
@@ -332,6 +354,10 @@ def _lock_exclusive(handle: BinaryIO) -> None:
     if msvcrt is not None:  # pragma: no cover - exercised on Windows CI
         handle.seek(0, os.SEEK_END)
         if handle.tell() == 0:
+            # msvcrt.locking needs an existing byte to lock; pad a brand-new
+            # file with a single NUL byte.  ``append_record`` overwrites this
+            # padding with the first record when it sees a NUL-prefixed empty
+            # file, so the padding never survives on disk.
             handle.write(b"\0")
             handle.flush()
         handle.seek(0)
@@ -450,7 +476,17 @@ def append_record(
             }
             line = (json.dumps(full_record, ensure_ascii=False) + "\n").encode("utf-8")
 
-            handle.seek(0, os.SEEK_END)
+            # Windows msvcrt.locking pads a brand-new file with a NUL byte so
+            # it has something to lock.  Whenever the pre-existing content is
+            # exactly that padding (one NUL byte), overwrite it with the first
+            # record instead of appending behind it — otherwise the ledger
+            # would start with an invisible byte that every reader misparses
+            # as a corrupted first line.  ``truncate()`` must be used, not
+            # ``seek(0)``: append mode ("a+b") always writes at end-of-file
+            # regardless of the seek position.
+            if _is_nul_padding_only(existing_text):
+                handle.seek(0)
+                handle.truncate()
             handle.write(line)
             handle.flush()
             if fsync:
@@ -480,7 +516,9 @@ def _read_raw_records(path: Path) -> list[dict[str, Any]]:
         return []
     records: list[dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
+        # Ignore NUL/whitespace-only padding bytes (Windows lock helper pads
+        # new files with a NUL byte); NUL never appears in real payloads.
+        stripped = line.replace("\x00", "").strip()
         if not stripped:
             continue
         try:
