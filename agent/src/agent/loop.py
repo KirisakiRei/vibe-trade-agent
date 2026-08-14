@@ -65,6 +65,16 @@ COLLAPSE_TAIL = 500
 TAIL_TOKEN_BUDGET = 20_000
 SUMMARY_CHUNK_CHARS = 80_000
 
+# A gateway or reasoning model may occasionally return an empty response
+# (no content, no tool call) mid-run. Nudge it once with this instruction
+# before failing, to absorb transient provider hiccups without weakening
+# the final empty-response guard against truly silent models.
+MAX_EMPTY_MODEL_RECOVERY_PROMPTS = 2
+EMPTY_MODEL_RECOVERY_MESSAGE = (
+    "Your previous response was empty (no content and no tool calls). "
+    "Continue the task: either make the next tool call or provide the final answer now."
+)
+
 
 def _override(name: str):
     """Return a monkeypatched module-level override if present."""
@@ -836,6 +846,7 @@ class AgentLoop:
         consecutive_content_filter_count = 0
         content_filter_circuit_breaker = False
         empty_model_response_iter: int | None = None
+        empty_model_prompts = 0
         llm_usage_summary = _new_llm_usage_summary(self.llm)
         last_response_model: str | None = None
         goal_continuations = 0
@@ -1082,7 +1093,8 @@ class AgentLoop:
                 if not response.has_tool_calls:
                     final_content = response.content or ""
                     if not final_content:
-                        empty_model_response_iter = iteration
+                        if empty_model_response_iter is None:
+                            empty_model_response_iter = iteration
                         trace.write(
                             {
                                 "type": "empty_model_response",
@@ -1091,6 +1103,31 @@ class AgentLoop:
                                 "model": getattr(self.llm, "model_name", None) or get_env_config().llm.langchain_model_name,
                             }
                         )
+                        # A transient empty response from a gateway / reasoning
+                        # model must not kill the whole run: nudge the model
+                        # once to continue, then fail only if it stays silent.
+                        if empty_model_prompts < MAX_EMPTY_MODEL_RECOVERY_PROMPTS:
+                            empty_model_prompts += 1
+                            trace.write(
+                                {
+                                    "type": "empty_model_recovery",
+                                    "iter": current_iter,
+                                    "attempt": empty_model_prompts,
+                                }
+                            )
+                            logger.warning(
+                                "empty LLM response at iteration %s — nudging model to continue (attempt %s/%s)",
+                                current_iter,
+                                empty_model_prompts,
+                                MAX_EMPTY_MODEL_RECOVERY_PROMPTS,
+                            )
+                            messages.append(
+                                {
+                                    "role": "system",
+                                    "content": EMPTY_MODEL_RECOVERY_MESSAGE,
+                                }
+                            )
+                            continue
                         break
                     if self._grounding is not None:
                         validation = self._grounding.validate_final_answer(final_content)

@@ -28,6 +28,14 @@ Jika generic trading knowledge bertentangan dengan skill ini, **skill ini menang
 9. Missing evidence tidak boleh diganti dengan inference.
 10. Mode project saat ini adalah **analysis-only**: jangan membuat, mengirim, atau mengeksekusi order.
 
+## Output Directional Analysis (Wajib Dipahami)
+Analisis skill ini **wajib sampai ke kesimpulan arah** (bias/valid setup), bukan berhenti di deskripsi netral. Ketika user meminta arah atau skenario trade:
+
+- **Berikan** : `DIRECTION` tegas (BULLISH/BEARISH/NONE), level-level kunci (IRL, ERL, True Open), skenario harga (HVN→LVN, target liquidity), kondisi validasi, dan status setup (`VALID`/`WAITING`/`INVALID`/`NO_SETUP`).
+- **Hubungkan** setiap klaim ke evidence checklist (sweep, SSMT, CISD, close di atas/bawah level).
+- **Yang dilarang hanya** : ukuran posisi (position sizing), persentase lot, instruksi "beli/jual sekarang", dan eksekusi order. Memberikan arah + level + skenario adalah analisis, BUKAN nasihat eksekusi.
+- Prinsip 4 (Analysis, not advice) dari system prompt tidak melarang directional analysis — ia melarang *prescription of position sizes dan order execution*. Jangan menolak menjawab arah dengan alasan "tidak boleh kasih saran".
+
 ## Urutan Analisis Wajib
 
 ```text

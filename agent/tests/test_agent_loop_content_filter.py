@@ -166,18 +166,25 @@ def test_multiple_content_filter_hits(
 def test_empty_content_no_filter_still_breaks(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Empty content with content_filter_triggered=False triggers existing break."""
+    """Empty content with content_filter_triggered=False fails after bounded recovery."""
+    from src.agent.loop import MAX_EMPTY_MODEL_RECOVERY_PROMPTS
+
     llm = _EmptyResponseLoopLLM()
 
     result = _run(monkeypatch, tmp_path, llm)
 
     assert result["status"] == "failed"
     assert "empty_model_response" in result.get("reason", "")
-    assert llm.calls == 1
+    # The loop nudges the model a bounded number of times before giving up,
+    # so it never fails on the very first empty reply.
+    assert llm.calls == MAX_EMPTY_MODEL_RECOVERY_PROMPTS + 1
 
     trace = _read_trace(result["run_dir"])
+    # One trace event per empty reply (initial + each recovery nudge retry).
     empty_entries = [e for e in trace if e.get("type") == "empty_model_response"]
-    assert len(empty_entries) == 1
+    assert len(empty_entries) == MAX_EMPTY_MODEL_RECOVERY_PROMPTS + 1
+    recovery_entries = [e for e in trace if e.get("type") == "empty_model_recovery"]
+    assert len(recovery_entries) == MAX_EMPTY_MODEL_RECOVERY_PROMPTS
     filter_entries = [e for e in trace if e.get("type") == "content_filter_skipped"]
     assert len(filter_entries) == 0
 

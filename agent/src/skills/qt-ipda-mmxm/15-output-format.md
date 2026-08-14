@@ -73,6 +73,15 @@ Invalidation: INVALID_SEQUENCE.
 ## NO_SETUP
 Jangan membuat directional call bila key level/structure belum cukup.
 
+## Directional Request (Trade Direction)
+Saat user bertanya arah/skenario trade:
+
+- Berikan `DIRECTION` tegas: `BULLISH` / `BEARISH` / `NONE`/`UNKNOWN`.
+- Sertakan level aksi: IRL, ERL, True Open, dan target likuiditas (BSL/SSL).
+- Sertakan skenario: "jika price close di atas X → bias bullish menuju Y; invalidation bila close kembali di bawah Z".
+- Semua claim wajib ditautkan ke evidence checklist (sweep, SSMT, CISD, STS).
+- **DILARANG**: ukuran posisi, lot, persentase, "beli sekarang"/"jual sekarang", dan instruksi eksekusi broker. Arah + level + skenario adalah output analitis, bukan nasihat — jangan menolak memberikannya.
+
 ## Fact vs Interpretation
 Jika ada insight probabilistik/historis, pisahkan:
 
