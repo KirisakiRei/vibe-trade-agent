@@ -1,9 +1,36 @@
 # 15 — Output Format for Agent / Telegram
 
 ## Tujuan
-Jawaban harus compact, audit-friendly, dan tidak menyamarkan missing evidence.
+Jawaban harus to the point, audit-friendly, dan tidak menyamarkan missing evidence.
 
-## Standard Analysis Output
+Default untuk chat (Telegram / follow-up singkat) adalah **BRIEF**.
+Format audit penuh hanya dipakai jika user secara eksplisit meminta `lengkap`, `audit`, atau `detail`.
+
+## BRIEF (default — wajib untuk Telegram)
+
+Maksimal 12 baris. Tidak ada esai, tabel, atau timeframe yang tidak diminta.
+
+```text
+{SYMBOL}  {as-of + timezone}
+DIRECTION   : {BULLISH/BEARISH/NONE/UNKNOWN}
+FINAL STATUS: {NO_SETUP/WAITING/VALID/INVALID}
+HTF / OF    : {bias} / {IRL→ERL}
+IRL         : {type TF zone}
+ERL         : {type TF price}
+True Open   : {price PREMIUM/DISCOUNT}
+Sweep/SSMT/CISD : {status}/{status}/{status}
+Reason      : {satu kalimat, evidence-based}
+Missing     : {item wajib yang belum ada, atau NONE}
+Invalidation: {level/kondisi, atau NONE}
+```
+
+Aturan BRIEF:
+- Jangan mengulang seluruh Monthly/Weekly/Daily/90M kecuali user meminta audit.
+- Jangan menulis paragraf. Satu label, satu nilai.
+- `DIRECTION` wajib tegas. Jangan menolak memberi arah.
+- Jika data kurang: `UNKNOWN` pada item, bukan spekulasi.
+
+## FULL AUDIT (hanya jika diminta)
 
 ```text
 {SYMBOL} — QT/IPDA/MMXM

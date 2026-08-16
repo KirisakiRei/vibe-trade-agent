@@ -36,6 +36,11 @@ Analisis skill ini **wajib sampai ke kesimpulan arah** (bias/valid setup), bukan
 - **Yang dilarang hanya** : ukuran posisi (position sizing), persentase lot, instruksi "beli/jual sekarang", dan eksekusi order. Memberikan arah + level + skenario adalah analisis, BUKAN nasihat eksekusi.
 - Prinsip 4 (Analysis, not advice) dari system prompt tidak melarang directional analysis — ia melarang *prescription of position sizes dan order execution*. Jangan menolak menjawab arah dengan alasan "tidak boleh kasih saran".
 
+## Brevity (Wajib untuk Telegram)
+Default output adalah **BRIEF** di `15-output-format.md`: maksimal 12 baris, label + nilai, tanpa esai dan tanpa tabel.
+Jangan load seluruh supporting file untuk pertanyaan singkat. Load hanya langkah yang dibutuhkan untuk `DIRECTION` + `FINAL STATUS`.
+Format FULL AUDIT hanya jika user meminta `lengkap` / `audit` / `detail`.
+
 ## Urutan Analisis Wajib
 
 ```text

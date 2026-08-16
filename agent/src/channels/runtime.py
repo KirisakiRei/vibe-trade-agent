@@ -22,6 +22,37 @@ from src.session.service import SessionBusyError
 
 logger = logging.getLogger(__name__)
 
+_BRIEF_CHANNELS = frozenset({"telegram"})
+_BRIEF_WRAP = (
+    "<channel-constraint>\n"
+    "Reply in BRIEF form: at most 12 short labelled lines. "
+    "Lead with DIRECTION and FINAL STATUS. "
+    "Do not write essays, tables, or unused timeframes. "
+    "Full audit only if the user explicitly asks for lengkap/audit/detail.\n"
+    "</channel-constraint>\n\n"
+)
+
+
+def apply_channel_output_constraint(channel: str, content: str) -> str:
+    """Prefix a brevity contract for chat channels that punish long answers.
+
+    Telegram is the production UI. The QT/IPDA/MMXM skill already prefers
+    BRIEF output, but the model still sees the large upstream system prompt.
+    A per-message wrap keeps the constraint next to the user request without
+    mutating the cacheable system prompt.
+
+    Args:
+        channel: Inbound channel name.
+        content: Raw user text.
+
+    Returns:
+        The original content, or the same content prefixed with the wrap
+        when the channel needs a short-form answer.
+    """
+    if channel not in _BRIEF_CHANNELS:
+        return content
+    return f"{_BRIEF_WRAP}{content}"
+
 
 @dataclass
 class ChannelRuntimeConfig:
@@ -186,7 +217,7 @@ class ChannelRuntime:
             session_id = self._session_for(msg)
             result = await self.session_service.send_message(
                 session_id,
-                msg.content,
+                apply_channel_output_constraint(msg.channel, msg.content),
                 include_shell_tools=False,
             )
             attempt_id = result.get("attempt_id") if isinstance(result, dict) else None

@@ -896,3 +896,48 @@ def test_signal_group_command_requires_per_sender_authorization() -> None:
     )
     assert allowed is True
     assert allowed_chat == "group-1"
+
+
+def test_apply_channel_output_constraint_wraps_telegram_only() -> None:
+    from src.channels.runtime import apply_channel_output_constraint
+
+    wrapped = apply_channel_output_constraint("telegram", "analisa btc")
+    assert wrapped.startswith("<channel-constraint>")
+    assert "analisa btc" in wrapped
+    assert apply_channel_output_constraint("websocket", "analisa btc") == "analisa btc"
+
+
+def test_channel_runtime_prefixes_telegram_prompt(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        from src.channels.runtime import ChannelRuntime
+
+        bus = MessageBus()
+        service = FakeSessionService()
+        runtime = ChannelRuntime(
+            bus=bus,
+            session_service=service,
+            manager=None,
+            session_map_path=tmp_path / "channel_sessions.json",
+            reply_timeout_s=1,
+            poll_interval_s=0.01,
+        )
+        await runtime.start(start_manager=False)
+        try:
+            await bus.publish_inbound(
+                InboundMessage(
+                    channel="telegram",
+                    sender_id="user-1",
+                    chat_id="chat-1",
+                    content="analisa btc ringkas",
+                )
+            )
+            await asyncio.wait_for(bus.consume_outbound(), timeout=1)
+        finally:
+            await runtime.stop()
+
+        session_id, sent = service.sent[0]
+        assert session_id == "session-1"
+        assert sent.startswith("<channel-constraint>")
+        assert "analisa btc ringkas" in sent
+
+    asyncio.run(scenario())

@@ -138,6 +138,9 @@ class LLMConfig(_EnvBase):
 
     langchain_provider: str = Field(alias="LANGCHAIN_PROVIDER", default="openai")
     langchain_model_name: str = Field(alias="LANGCHAIN_MODEL_NAME", default="")
+    langchain_fallback_model_name: str = Field(
+        alias="LANGCHAIN_FALLBACK_MODEL_NAME", default=""
+    )
     langchain_temperature: float = Field(alias="LANGCHAIN_TEMPERATURE", default=0.0)
     anthropic_max_tokens: int | None = Field(alias="ANTHROPIC_MAX_TOKENS", default=None, gt=0)
     timeout_seconds: int = Field(alias="TIMEOUT_SECONDS", default=120)

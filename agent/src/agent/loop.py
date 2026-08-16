@@ -72,8 +72,44 @@ SUMMARY_CHUNK_CHARS = 80_000
 MAX_EMPTY_MODEL_RECOVERY_PROMPTS = 2
 EMPTY_MODEL_RECOVERY_MESSAGE = (
     "Your previous response was empty (no content and no tool calls). "
-    "Continue the task: either make the next tool call or provide the final answer now."
+    "Do not reason silently. Reply now with either the next tool call "
+    "or a short final answer (DIRECTION + FINAL STATUS + reason). "
+    "Keep the answer under 12 lines."
 )
+_REASONING_ANSWER_MARKERS = (
+    "DIRECTION",
+    "FINAL STATUS",
+    "BULLISH",
+    "BEARISH",
+    "NO_SETUP",
+    "WAITING",
+    "VALID",
+    "INVALID",
+)
+
+
+def salvage_reasoning_as_answer(reasoning_content: str | None) -> str:
+    """Promote a reasoning trace to a final answer when it already contains one.
+
+    Reasoning models on OpenAI-compatible gateways often spend the whole
+    completion budget on ``reasoning_content`` and leave ``content`` empty.
+    If that trace already carries the project's analysis contract, returning
+    it is more useful than failing the run as ``empty_model_response``.
+
+    Args:
+        reasoning_content: Provider reasoning / thinking text.
+
+    Returns:
+        The stripped reasoning text when it looks like an analysis answer,
+        otherwise an empty string.
+    """
+    text = (reasoning_content or "").strip()
+    if len(text) < 24:
+        return ""
+    upper = text.upper()
+    if any(marker in upper for marker in _REASONING_ANSWER_MARKERS):
+        return text
+    return ""
 
 
 def _override(name: str):
@@ -700,6 +736,50 @@ class AgentLoop:
         self._run_iteration: int = 0
         self._has_run = False
         self._grounding: GroundingLedger | None = None
+        self._fallback_activated = False
+
+    def _try_activate_fallback_llm(self) -> bool:
+        """Swap onto LANGCHAIN_FALLBACK_MODEL_NAME after empty-response exhaustion.
+
+        Same provider, different model. Construction failure is logged and
+        treated as "no fallback" so the existing empty-response guard still
+        closes the run.
+
+        Returns:
+            True when the loop LLM was replaced and the caller should retry.
+        """
+        fallback = get_env_config().llm.langchain_fallback_model_name.strip()
+        current = self._llm_runtime.configured_model
+        if (
+            not fallback
+            or fallback == current
+            or self._fallback_activated
+        ):
+            return False
+        try:
+            factory = _override("build_fallback_chat_llm") or ChatLLM
+            replacement = factory(model_name=fallback)
+        except Exception as exc:  # noqa: BLE001 - fallback must never crash the run
+            logger.warning(
+                "fallback model %s failed to construct: %s", fallback, exc
+            )
+            return False
+        self.llm = replacement
+        self._fallback_activated = True
+        runtime_snapshot = getattr(replacement, "runtime_snapshot", None)
+        if isinstance(runtime_snapshot, LLMRuntimeSnapshot):
+            self._llm_runtime = runtime_snapshot
+        else:
+            self._llm_runtime = LLMRuntimeSnapshot(
+                provider=self._llm_runtime.provider,
+                configured_model=fallback,
+                reasoning_effort=self._llm_runtime.reasoning_effort,
+            )
+        logger.warning(
+            "switched to fallback model %s after empty primary responses",
+            fallback,
+        )
+        return True
 
     def cancel(self) -> None:
         """Cancel the current loop.
@@ -1093,42 +1173,75 @@ class AgentLoop:
                 if not response.has_tool_calls:
                     final_content = response.content or ""
                     if not final_content:
-                        if empty_model_response_iter is None:
-                            empty_model_response_iter = iteration
-                        trace.write(
-                            {
-                                "type": "empty_model_response",
-                                "iter": current_iter,
-                                "provider": get_env_config().llm.langchain_provider,
-                                "model": getattr(self.llm, "model_name", None) or get_env_config().llm.langchain_model_name,
-                            }
+                        salvaged = salvage_reasoning_as_answer(
+                            getattr(response, "reasoning_content", None)
                         )
-                        # A transient empty response from a gateway / reasoning
-                        # model must not kill the whole run: nudge the model
-                        # once to continue, then fail only if it stays silent.
-                        if empty_model_prompts < MAX_EMPTY_MODEL_RECOVERY_PROMPTS:
-                            empty_model_prompts += 1
+                        if salvaged:
+                            final_content = salvaged
                             trace.write(
                                 {
-                                    "type": "empty_model_recovery",
+                                    "type": "reasoning_salvage",
                                     "iter": current_iter,
-                                    "attempt": empty_model_prompts,
+                                    "chars": len(salvaged),
                                 }
                             )
                             logger.warning(
-                                "empty LLM response at iteration %s — nudging model to continue (attempt %s/%s)",
+                                "empty LLM content at iteration %s — salvaged reasoning_content (%s chars)",
                                 current_iter,
-                                empty_model_prompts,
-                                MAX_EMPTY_MODEL_RECOVERY_PROMPTS,
+                                len(salvaged),
                             )
-                            messages.append(
+                        else:
+                            if empty_model_response_iter is None:
+                                empty_model_response_iter = iteration
+                            trace.write(
                                 {
-                                    "role": "system",
-                                    "content": EMPTY_MODEL_RECOVERY_MESSAGE,
+                                    "type": "empty_model_response",
+                                    "iter": current_iter,
+                                    "provider": get_env_config().llm.langchain_provider,
+                                    "model": getattr(self.llm, "model_name", None) or get_env_config().llm.langchain_model_name,
                                 }
                             )
-                            continue
-                        break
+                            # A transient empty response from a gateway / reasoning
+                            # model must not kill the whole run: nudge the model
+                            # once to continue, then fail only if it stays silent.
+                            if empty_model_prompts < MAX_EMPTY_MODEL_RECOVERY_PROMPTS:
+                                empty_model_prompts += 1
+                                trace.write(
+                                    {
+                                        "type": "empty_model_recovery",
+                                        "iter": current_iter,
+                                        "attempt": empty_model_prompts,
+                                    }
+                                )
+                                logger.warning(
+                                    "empty LLM response at iteration %s — nudging model to continue (attempt %s/%s)",
+                                    current_iter,
+                                    empty_model_prompts,
+                                    MAX_EMPTY_MODEL_RECOVERY_PROMPTS,
+                                )
+                                messages.append(
+                                    {
+                                        "role": "system",
+                                        "content": EMPTY_MODEL_RECOVERY_MESSAGE,
+                                    }
+                                )
+                                continue
+                            if self._try_activate_fallback_llm():
+                                trace.write(
+                                    {
+                                        "type": "fallback_model_activated",
+                                        "iter": current_iter,
+                                        "model": self._llm_runtime.configured_model,
+                                    }
+                                )
+                                messages.append(
+                                    {
+                                        "role": "system",
+                                        "content": EMPTY_MODEL_RECOVERY_MESSAGE,
+                                    }
+                                )
+                                continue
+                            break
                     if self._grounding is not None:
                         validation = self._grounding.validate_final_answer(final_content)
                         if not validation.valid:

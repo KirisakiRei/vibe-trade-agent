@@ -130,6 +130,83 @@ def test_empty_recovery_entries_written_to_trace(tmp_path: Path) -> None:
     assert recovery[0]["attempt"] <= MAX_EMPTY_MODEL_RECOVERY_PROMPTS
 
 
+def test_salvage_ignores_short_or_generic_reasoning() -> None:
+    from src.agent.loop import salvage_reasoning_as_answer
+
+    assert salvage_reasoning_as_answer(None) == ""
+    assert salvage_reasoning_as_answer("thinking...") == ""
+    assert salvage_reasoning_as_answer("I need more data from the tools.") == ""
+    assert salvage_reasoning_as_answer(
+        "DIRECTION: NONE\nFINAL STATUS: NO_SETUP\nReason: no key level yet."
+    ).startswith("DIRECTION")
+
+
+def test_reasoning_trace_with_direction_is_salvaged(tmp_path: Path) -> None:
+    class _ReasoningOnlyLLM:
+        def stream_chat(self, *args: Any, **kwargs: Any) -> LLMResponse:
+            del args, kwargs
+            return LLMResponse(
+                content="",
+                reasoning_content=(
+                    "DIRECTION: BEARISH\n"
+                    "FINAL STATUS: WAITING\n"
+                    "Reason: daily SSL swept, waiting 5M CISD."
+                ),
+            )
+
+        def chat(self, *args: Any, **kwargs: Any) -> LLMResponse:
+            del args, kwargs
+            return LLMResponse(content="")
+
+    result = _run(tmp_path, _ReasoningOnlyLLM())
+
+    assert result["status"] == "success"
+    assert "DIRECTION: BEARISH" in result["content"]
+    trace = _read_trace(result["run_dir"])
+    assert any(e.get("type") == "reasoning_salvage" for e in trace)
+
+
+def test_fallback_model_activates_after_empty_exhaustion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import src.agent.loop as loop_mod
+    from src.config.accessor import reset_env_config
+
+    monkeypatch.setenv("LANGCHAIN_FALLBACK_MODEL_NAME", "fallback-flash")
+    reset_env_config()
+
+    class _FallbackLLM:
+        def __init__(self, model_name: str = "fallback-flash") -> None:
+            self.model_name = model_name
+            self.calls = 0
+
+        def stream_chat(self, *args: Any, **kwargs: Any) -> LLMResponse:
+            del args, kwargs
+            self.calls += 1
+            return LLMResponse(content="DIRECTION: BULLISH\nFINAL STATUS: WAITING")
+
+        def chat(self, *args: Any, **kwargs: Any) -> LLMResponse:
+            del args, kwargs
+            return LLMResponse(content="")
+
+    fallback = _FallbackLLM()
+    monkeypatch.setattr(
+        loop_mod,
+        "build_fallback_chat_llm",
+        lambda model_name="": fallback,
+        raising=False,
+    )
+
+    result = _run(tmp_path, _AlwaysEmptyLLM(), max_iterations=6)
+
+    assert result["status"] == "success"
+    assert "DIRECTION: BULLISH" in result["content"]
+    assert fallback.calls == 1
+    trace = _read_trace(result["run_dir"])
+    assert any(e.get("type") == "fallback_model_activated" for e in trace)
+    reset_env_config()
+
+
 def test_recovery_nudge_message_added_to_messages(tmp_path: Path) -> None:
     from src.agent.loop import EMPTY_MODEL_RECOVERY_MESSAGE
 

@@ -1,6 +1,6 @@
 # QT/IPDA/MMXM Skill Manifest
 
-**Versi rulebook: 1.1.0**
+**Versi rulebook: 1.2.0**
 
 Folder ini berisi skill modular untuk Vibe-Trading/custom agent:
 
@@ -28,6 +28,10 @@ Source basis:
 Core rule files harus diperlakukan read-only oleh self-learning layer.
 
 ## Changelog
+
+### v1.2.0
+- `15-output-format.md`: default Telegram menjadi BRIEF (maks. 12 baris). FULL AUDIT hanya jika user meminta lengkap/audit/detail.
+- `SKILL.md`: klausa brevity — jangan load seluruh rulebook untuk pertanyaan singkat.
 
 ### v1.1.0
 - `09-sweep.md`: `sweepDistanceTolerance` diperjelas sebagai 10% dari *range* key level (`keyLevel.high - keyLevel.low`), bukan persentase dari nilai harga level.

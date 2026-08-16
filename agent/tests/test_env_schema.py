@@ -73,6 +73,7 @@ class TestEnvConfigDefaults:
         c = EnvConfig()
         assert c.llm.langchain_provider == "openai"
         assert c.llm.langchain_model_name == ""
+        assert c.llm.langchain_fallback_model_name == ""
         assert c.llm.langchain_temperature == 0.0
         assert c.llm.timeout_seconds == 120
         assert c.llm.vibe_trading_disable_http_proxy is False
